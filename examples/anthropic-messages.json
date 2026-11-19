@@ -1,0 +1,68 @@
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 2048,
+  "system": "You are a code review agent. Review the diff you are given and leave comments on the lines that matter. Do not restate the diff. Do not praise. If a change is correct, say nothing.",
+  "tools": [
+    {
+      "name": "read_file",
+      "description": "Read a file from the repository at the given ref.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "ref": {"type": "string", "description": "Git ref to read at, defaults to the PR head."}
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "leave_comment",
+      "description": "Leave an inline review comment on a specific line of the diff.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "line": {"type": "integer"},
+          "body": {"type": "string"}
+        },
+        "required": ["path", "line", "body"]
+      }
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "Review PR #418: it moves retry logic out of the HTTP client and into a middleware. Focus on correctness under partial failure."}
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {"type": "text", "text": "I need the diff and the middleware to review this properly."},
+        {"type": "tool_use", "id": "toolu_01", "name": "read_file", "input": {"path": "internal/http/middleware/retry.go"}}
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_01",
+          "content": "package middleware\n\nfunc Retry(n int, backoff time.Duration) Middleware {\n\treturn func(next Handler) Handler {\n\t\treturn func(ctx context.Context, req *Request) (*Response, error) {\n\t\t\tvar last error\n\t\t\tfor i := 0; i < n; i++ {\n\t\t\t\tresp, err := next(ctx, req)\n\t\t\t\tif err == nil {\n\t\t\t\t\treturn resp, nil\n\t\t\t\t}\n\t\t\t\tlast = err\n\t\t\t\ttime.Sleep(backoff)\n\t\t\t}\n\t\t\treturn nil, last\n\t\t}\n\t}\n}\n"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {"type": "text", "text": "The retry loop is the problem: it retries every error, including 4xx and context cancellation, and it reads the same body twice because the request is reused across attempts."},
+        {"type": "tool_use", "id": "toolu_02", "name": "leave_comment", "input": {"path": "internal/http/middleware/retry.go", "line": 7, "body": "This retries on every error. A 400 will be sent three times. Classify the error first and only retry 5xx and transport failures, then add a body rewind so attempt two does not send an empty body."}}
+      ]
+    },
+    {
+      "role": "user",
+      "content": [{"type": "tool_result", "tool_use_id": "toolu_02", "content": "{\"ok\": true, \"comment_id\": 9812331}"}]
+    }
+  ]
+}

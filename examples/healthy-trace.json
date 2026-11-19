@@ -1,0 +1,280 @@
+{
+  "model": "gpt-5.1",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Atlas, an autonomous research and operations agent running inside a managed Kubernetes platform.\n\n## What you are for\nYou answer operational questions end to end: find the signal, quantify it, explain the mechanism, and write the update a human can send without editing. You are trusted with read access to the staging cluster and the analytics warehouse. You are not trusted with production writes, billing changes, or deleting anything.\n\n## Non-negotiables\n1. Never run a destructive command. Destructive means any verb containing delete, drain, cordon, scale to zero, or apply -f against a namespace you did not list in this run.\n2. Cite a source for every factual claim in the final report. A source is a tool call id, a file path, or a query you ran.\n3. Prefer the smallest tool call that answers the question. One query that returns the answer beats a query that returns the data for the answer.\n4. When a tool fails twice with the same error, stop and report instead of retrying. Two identical failures mean the tool is down, not that the argument was wrong.\n5. Never paste a full payload into the final report. Summarize, then link.\n6. Keep the final report under 400 words.\n\n## Working notes\n- The warehouse is postgres, read-only role atlas_ro. The incidents table has 4.2M rows and no index on payload.\n- Staging is us-east-1-staging. Production is us-east-1-prod and requires an approval I cannot grant.\n- #incidents in Slack is the source of truth for the timeline when two dashboards disagree.\n- The checkout service is owned by team payments; the ledger client is owned by team money-movement. A timeout in one shows up as an error in the other.\n- Deploy history lives in `kubectl rollout history`. Revision numbers are per deployment and reset when we cut a release branch.\n\n## How to work\nStart by restating the question in one line to yourself. Then decide the smallest set of tool calls that separates the competing hypotheses. Run them. If the data contradicts your hypothesis, say so and change the plan rather than collecting more data for the original one.\n\n## Output format\nShip a report with: impact (numbers and time window), cause (the mechanism, not the symptom), evidence (tool call ids), and next action (who does what). If you are unsure, name the uncertainty and what would resolve it.\n\n## Style\nBe concise. Be precise. Be concise. Do not speculate when a query can answer it. Do not apologize. Do not narrate what you are about to do when the tool call already says it.\n\nAmbiguity note: when the user says \"checkout is down\", they usually mean the checkout path in the payment service, not the checkout repository. Check both before concluding.\n"
+    },
+    {
+      "role": "user",
+      "content": "Checkout is throwing 5xx since 08:40 UTC. Find the cause, quantify the impact, and draft the incident update for #incidents. Do not touch production."
+    },
+    {
+      "role": "assistant",
+      "content": "Restating: checkout 5xx since 08:40; cause unknown; impact unknown; production off limits. Two facts separate the hypotheses: the deploy timeline and the error's exception class. Checking both in one pass."
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "h1",
+          "type": "function",
+          "function": {
+            "name": "sql_query",
+            "arguments": "{\"sql\": \"select date_trunc('hour', ts) as hour, count(*) filter (where status >= 500) as errors, count(*) as total, max(exception) as exception from requests where path like '/checkout%' and ts > now() - interval '2 hours' group by 1 order by 1\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "sql_query",
+      "tool_call_id": "h1",
+      "content": "2 rows. 08:00 -> 41/12,004 (0.34%) LedgerTimeout. 09:00 -> 3,182/12,190 (26.1%) LedgerTimeout. Window started 08:41."
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "h2",
+          "type": "function",
+          "function": {
+            "name": "run_shell",
+            "arguments": "{\"command\": \"kubectl -n us-east-1-staging rollout history deploy/checkout | tail -3\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "run_shell",
+      "tool_call_id": "h2",
+      "content": "REVISION 13 deployed 08:39 UTC. Diff: LEDGER_TIMEOUT_MS default 8000 -> 3000."
+    },
+    {
+      "role": "assistant",
+      "content": "Cause: revision 13 cut the ledger timeout to 3000ms; p99 ledger capture is 2.9s and the confirmation burst pushes it past the new ceiling, so 26% of confirms fail. Impact: 08:41-09:09 UTC, 26.1% error rate, ~3,182 failed confirms. Next: roll back to revision 12, owner team-payments."
+    },
+    {
+      "role": "user",
+      "content": "Good. Draft the channel update."
+    },
+    {
+      "role": "assistant",
+      "content": "Drafted in #incidents: 3 lines, impact first, cause second, next action with an owner."
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "web_search",
+        "description": "Search the internal status index and the public web, and return ranked results. Each result carries title, url, a snippet of up to 400 characters, and a relevance score. Use this for incident history and for anything that is not in the warehouse. Do not use this to look up service health; use fetch_page on the status service instead, because search results are cached for 15 minutes and can be stale during an incident.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Natural language query. Quoted phrases are exact matched."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Results to return, 1 to 20.",
+              "default": 5
+            },
+            "recency_days": {
+              "type": "integer",
+              "description": "Only results newer than this many days. Omit for no filter.",
+              "default": 30
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "fetch_page",
+        "description": "Fetch a URL and return cleaned text. HTML is stripped of scripts, styles, and navigation, then truncated at 100,000 characters. Pages behind the internal gateway need the full hostname, not a path relative to the status service. Returns the final URL after redirects, the HTTP status, and the content.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "Absolute URL, http or https."
+            },
+            "max_chars": {
+              "type": "integer",
+              "description": "Truncate the cleaned text at this many characters.",
+              "default": 100000
+            },
+            "selector": {
+              "type": "string",
+              "description": "Optional CSS selector to scope the extraction, for example 'main' or '#incident-body'."
+            }
+          },
+          "required": [
+            "url"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "sql_query",
+        "description": "Run one read-only SQL statement against the analytics warehouse (postgres 16, read replica). Returns rows as JSON objects, the row count, and the wall clock duration. Statements run with a 30 second timeout and a 10,000 row cap; use aggregation rather than pulling raw rows when the table is large. The incidents table is not indexed on payload, so filtering on JSON fields is a sequential scan.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sql": {
+              "type": "string",
+              "description": "A single SELECT statement. CTEs are allowed. Semicolons terminate the statement."
+            },
+            "max_rows": {
+              "type": "integer",
+              "description": "Row cap for this query, up to 10000.",
+              "default": 1000
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "description": "Server side timeout.",
+              "default": 30
+            }
+          },
+          "required": [
+            "sql"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "run_shell",
+        "description": "Run a shell command in the agent workspace and return stdout, stderr, and the exit code. The workspace has kubectl, psql, jq, and curl. There is no network egress except to the internal gateway. Commands are killed at the timeout and the partial output is returned, so a truncated stdout usually means a timeout rather than success.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "The command line. Pipes and redirects are allowed; background processes are not."
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "description": "Kill the command after this many seconds.",
+              "default": 30
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Working directory inside the workspace."
+            }
+          },
+          "required": [
+            "command"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read a file from the workspace and return its contents with line numbers, so you can cite exact lines. Reads over 200 lines are paginated: pass start_line and end_line rather than reading the whole file. Binary files are rejected. A file over 2MB is truncated with a marker at the end.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path relative to the workspace root. Absolute paths outside the workspace are rejected."
+            },
+            "start_line": {
+              "type": "integer",
+              "description": "First line to return, 1 indexed.",
+              "default": 1
+            },
+            "end_line": {
+              "type": "integer",
+              "description": "Last line to return, inclusive."
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write_file",
+        "description": "Write a file in the workspace, overwriting anything already there. Use this for scratch analysis and for the draft report. It cannot write outside the workspace and it does not create directories.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path relative to the workspace root."
+            },
+            "content": {
+              "type": "string",
+              "description": "Full file contents."
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_dir",
+        "description": "List a directory with entry names, sizes in bytes, and modification times, sorted by name. Use this before read_file when you do not know the layout. Hidden files are included.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Directory path relative to the workspace root.",
+              "default": "."
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "post_slack",
+        "description": "Post a message to a Slack channel as the agent. The message is sent under the agent's own identity and cannot be edited or deleted afterwards, so draft it before sending. Threads are not supported; every message lands at the channel root. Rate limited to 20 messages per hour per channel.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "type": "string",
+              "description": "Channel name including the hash, for example #incidents."
+            },
+            "text": {
+              "type": "string",
+              "description": "Message body in Slack markdown. Max 4000 characters."
+            }
+          },
+          "required": [
+            "channel",
+            "text"
+          ]
+        }
+      }
+    }
+  ],
+  "temperature": 0.2
+}

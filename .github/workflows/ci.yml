@@ -1,0 +1,29 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Run the demo
+        run: python ctxscope.py --demo --no-color
+      - name: Write a report
+        run: python ctxscope.py examples/agent-trace.json --html /tmp/report.html --json /tmp/report.json --quiet
+      - name: Exact counts with tiktoken
+        run: |
+          pip install tiktoken
+          python ctxscope.py examples/agent-trace.json --encoding o200k --quiet --json /tmp/exact.json

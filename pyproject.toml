@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctxscope"
+version = "0.1.0"
+description = "X-ray an LLM context window: composition, duplicates, waste, and what to cut."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Srinikhil Chakilam" }]
+keywords = ["llm", "context-window", "tokens", "agents", "observability", "cost"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Debuggers",
+]
+dependencies = []
+
+[project.optional-dependencies]
+exact = ["tiktoken>=0.6"]
+
+[project.scripts]
+ctxscope = "ctxscope:main"
+
+[project.urls]
+Homepage = "https://github.com/rawqubit/ctxscope"
+Issues = "https://github.com/rawqubit/ctxscope/issues"
+
+[tool.setuptools]
+py-modules = ["ctxscope"]
