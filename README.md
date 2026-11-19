@@ -80,6 +80,8 @@ TRIM SIMULATOR  (independent, against the full window)
 
 Note the shape of that: the run is 91% tool output, 21% of the window is repeated blocks, and every low-risk trim together is a quarter of the bill. That is the normal case, not a pathological one — and it is why a typical long agent run scores in the D to F band. That is the finding, not a calibration error: the failure mode the score measures is the one almost every team is already in.
 
+Two more traces ship in `examples/`: [`retry-trace.json`](examples/retry-trace.json) is a CI repair agent that retried a failing tool three times and got byte-identical output each time (60% of that window is removable content), and [`healthy-trace.json`](examples/healthy-trace.json) is the same task done well: 2.8k tokens and a score of 92.
+
 ## The five checks
 
 | Check | Question it answers | How |
@@ -159,3 +161,5 @@ If you have a trace shape it does not recognize, open an issue with the first 20
 ## License
 
 MIT.
+
+Built by [Srinikhil Chakilam](https://srinikhilchakilam.com). If ctxscope finds something surprising in your traces, I want to hear about it.

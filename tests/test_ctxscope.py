@@ -200,6 +200,11 @@ class AnalysisTests(unittest.TestCase):
             self.assertLessEqual(data["score"]["value"], 100)
             self.assertIn(data["score"]["grade"], ("A", "B", "C", "D", "F"))
 
+    def test_retry_trace_is_duplicate_heavy(self):
+        _, _, data = analyze(ctxscope.build_retry_trace())
+        self.assertGreater(data["totals"]["duplicate_tokens"] / data["totals"]["tokens"], 0.5)
+        self.assertGreater(data["trims"]["safe_pct"], 40)
+
     def test_clean_trace_scores_higher(self):
         _, _, messy = analyze(ctxscope.build_demo_trace())
         _, _, clean = analyze(ctxscope.build_demo_trace(healthy=True))
@@ -287,7 +292,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("hello from stdin", result.stdout)
 
     def test_examples_are_valid(self):
-        for name in ("agent-trace.json", "healthy-trace.json", "anthropic-messages.json"):
+        for name in ("agent-trace.json", "healthy-trace.json", "retry-trace.json", "anthropic-messages.json"):
             result = self.run_cli(str(EXAMPLES / name), "--quiet", "--json", "/dev/null")
             self.assertEqual(result.returncode, 0, f"{name}: {result.stderr}")
 

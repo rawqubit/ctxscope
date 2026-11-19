@@ -2248,6 +2248,232 @@ def build_demo_trace(healthy: bool = False) -> dict:
     return {"model": "gpt-5.1", "messages": messages, "tools": tools, "temperature": 0.2}
 
 
+_CI_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_tests",
+            "description": "Run the test suite in the workspace and return stdout plus the exit code. The full pytest output is returned, including every failure's captured stdout, which can be several thousand characters. There is no filtering option; pipe through grep yourself with run_shell if you need a subset.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Test path or node id to run. Defaults to the whole suite."},
+                    "maxfail": {"type": "integer", "description": "Stop after this many failures.", "default": 50},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file from the repository and return it with line numbers. Reads over 400 lines are paginated at 200 lines per call, so a large file needs several calls with different start_line values.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer", "default": 1},
+                    "end_line": {"type": "integer", "default": 200},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Apply a full-file write. There is no patch mode, so the entire file must be included, which means reading it first.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_ci_log",
+            "description": "Fetch the raw log for a CI job by job id. Returns the full log text, including ANSI colour codes and the runner's environment dump. Jobs older than 90 days are unavailable.",
+            "parameters": {
+                "type": "object",
+                "properties": {"job_id": {"type": "string"}},
+                "required": ["job_id"],
+            },
+        },
+    },
+]
+
+_CI_SYSTEM = """You are Patch, an autonomous agent that repairs failing CI builds in a Python monorepo.
+
+Rules:
+1. Run the failing test before reading anything, so you know which assertion actually broke.
+2. Change one thing at a time. A patch that touches two files and makes the test pass does not tell you which change mattered.
+3. Never edit a test to match the implementation. If the test is wrong, say so and stop; a human decides that.
+4. If the same command fails three times with the same output, stop and report what you tried. Repeating it a fourth time is not recovery.
+5. Keep the final report to the failing test id, the mechanism, the one-line fix, and the confidence.
+"""
+
+
+def _pytest_output(identical: bool = True) -> str:
+    header = (
+        "============================= test session starts =============================\n"
+        "platform linux -- Python 3.12.7, pytest-8.3.3, pluggy-1.5.0\n"
+        "rootdir: /workspace/monorepo\n"
+        "plugins: xdist-3.6.1, cov-5.0.0, asyncio-0.24.0, mock-3.14.0\n"
+        "collected 1284 items / 3 deselected / 12 selected\n\n"
+    )
+    blocks = []
+    for n in range(8):
+        blocks.append(
+            f"tests/billing/test_invoice_service.py::test_invoice_totals_rounding[{n}] FAILED [ {8 + n}%]\n"
+        )
+    body = "".join(
+        f"\n_________________________________ test_invoice_totals_rounding[{n}] __________________________________\n\n"
+        f"    @pytest.mark.parametrize('cents,expected', [(101, 1.01), (109, 1.09), (115, 1.15)])\n"
+        f"    def test_invoice_totals_rounding(cents, expected):\n"
+        f">       assert invoice_total(cents) == expected\n"
+        f"E       assert 1.0999999999999999 == 1.1\n"
+        f"E        +  where 1.0999999999999999 = invoice_total(110)\n\n"
+        f"tests/billing/test_invoice_service.py:44: AssertionError\n"
+        f"----------------------------- Captured stdout call ---------------------------\n"
+        + "".join(
+            f"ledger: line {line} subtotal={line * 7}.{line}0 tax=0.0{line % 9} total={(line * 7.31):.4f}\n"
+            for line in range(1, 14)
+        )
+        + "----------------------------- Captured log call ------------------------------\n"
+        + "".join(
+            f"DEBUG    billing.rounding:rounding.py:{60 + line} rounding half-even on {line * 100} cents\n"
+            for line in range(1, 10)
+        )
+        for n in range(8)
+    )
+    footer = "\n=========================== short test summary info ============================\n" + "".join(
+        f"FAILED tests/billing/test_invoice_service.py::test_invoice_totals_rounding[{n}] - assert 1.0999999999999999 == 1.1\n"
+        for n in range(8)
+    ) + "======================== 8 failed, 1273 passed, 3 deselected in 41.28s ========================\n"
+    return header + body + footer
+
+
+def _rounding_source() -> str:
+    lines = [
+        '"""Invoice total helpers. Money is integer cents everywhere except at the boundary."""',
+        "",
+        "from __future__ import annotations",
+        "",
+        "import decimal",
+        "",
+        "",
+        "def invoice_total(cents: int) -> float:",
+        '    """Return the invoice total in major units.',
+        "",
+        "    The ledger stores integers. Everything above this layer expects decimal, and",
+        "    the rest of the codebase still compares against float literals, so the",
+        "    conversion happens here rather than at every call site.",
+        '    """',
+        "    return cents / 100.0",
+        "",
+        "",
+        "def invoice_total_decimal(cents: int) -> decimal.Decimal:",
+        '    """Unused. Kept for the migration in #4471."""',
+        "    return decimal.Decimal(cents) / decimal.Decimal(100)",
+        "",
+        "",
+        "def format_total(cents: int) -> str:",
+        '    return f"${invoice_total(cents):.2f}"',
+        "",
+    ]
+    return "\n".join(f"{n + 1:>4}  {line}" for n, line in enumerate(lines * 3))
+
+
+def _ci_log() -> str:
+    return (
+        "2026-11-19T04:12:03.9918Z ##[group]Run pytest -q --maxfail=50\n"
+        "2026-11-19T04:12:04.0021Z pytest -q --maxfail=50\n"
+        + "".join(
+            f"2026-11-19T04:12:0{4 + n // 10}.{1000 + n}.{2000 + n}Z tests/billing/test_invoice_service.py ..."
+            + ("F" if n % 37 == 0 else ".")
+            + "\n"
+            for n in range(140)
+        )
+        + "2026-11-19T04:12:48.1201Z =========================== short test summary info ============================\n"
+        "2026-11-19T04:12:48.1202Z FAILED tests/billing/test_invoice_service.py::test_invoice_totals_rounding[0]\n"
+        "2026-11-19T04:12:48.1203Z 8 failed, 1273 passed, 3 deselected in 41.28s\n"
+        "2026-11-19T04:12:48.3310Z ##[error]Process completed with exit code 1.\n"
+        "2026-11-19T04:12:48.4100Z ##[group]Runner environment\n"
+        + "".join(
+            f"2026-11-19T04:12:48.{5000 + n}Z   ENV_VAR_{n}=value-{n * 13}\n" for n in range(40)
+        )
+        + "2026-11-19T04:12:48.9000Z ##[endgroup]\n"
+    )
+
+
+def _gateway_error() -> str:
+    return (
+        "<!doctype html><html><head><title>502 Bad Gateway</title>"
+        "<style>body{font-family:sans-serif;margin:40px}code{background:#f4f4f4;padding:2px}</style></head>"
+        "<body><h1>502 Bad Gateway</h1>"
+        "<p>The upstream server returned an invalid response while serving <code>/api/v4/jobs/88123/log</code>.</p>"
+        "<p>Request id: <code>9f2c8a41-77b0-4d21-9a3e-6f1b2c9d4e10</code></p>"
+        "<p>If this persists, the job log is also available through the CLI: "
+        "<code>gh run view --job 88123 --log</code>.</p>"
+        "<hr><p>nginx/1.27.2</p></body></html>"
+    )
+
+
+def build_retry_trace() -> dict:
+    """A CI repair agent that loops: same test, same output, same failing fetch.
+
+    This is the shape that costs the most money in practice. The tool is down,
+    the agent retries, and every retry lands in the context verbatim.
+    """
+    messages = [{"role": "system", "content": _CI_SYSTEM}]
+    messages.append({"role": "user", "content": "Build 4471 is red on the billing tests. Fix the failing test and open a patch, or tell me why it cannot be fixed mechanically. Do not edit tests."})
+
+    tests = _pytest_output()
+    messages.append({"role": "assistant", "content": "Starting with the failing run so I know which assertion broke, not which file looks suspicious."})
+    messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": "r1", "type": "function", "function": {"name": "run_tests", "arguments": json.dumps({"path": "tests/billing", "maxfail": 50})}}]})
+    messages.append({"role": "tool", "name": "run_tests", "tool_call_id": "r1", "content": tests})
+
+    messages.append({"role": "assistant", "content": "Eight parametrised cases fail on a float comparison: 1.0999999999999999 against 1.1. Reading the source before changing it."})
+    messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": "r2", "type": "function", "function": {"name": "read_file", "arguments": json.dumps({"path": "src/billing/invoice_service.py", "start_line": 1, "end_line": 200})}}]})
+    messages.append({"role": "tool", "name": "read_file", "tool_call_id": "r2", "content": _rounding_source()})
+
+    messages.append({"role": "assistant", "content": "The conversion is `cents / 100.0`, which is a float division; 110 / 100.0 is not exactly 1.1. The repo already has a Decimal path that nothing calls. Applying the smallest fix: do the division in Decimal and quantize once at the boundary."})
+    messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": "r3", "type": "function", "function": {"name": "write_file", "arguments": json.dumps({"path": "src/billing/invoice_service.py", "content": "..."})}}]})
+    messages.append({"role": "tool", "name": "write_file", "tool_call_id": "r3", "content": json.dumps({"ok": True, "bytes": 741}, indent=2)})
+
+    messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": "r4", "type": "function", "function": {"name": "run_tests", "arguments": json.dumps({"path": "tests/billing", "maxfail": 50})}}]})
+    messages.append({"role": "tool", "name": "run_tests", "tool_call_id": "r4", "content": tests})
+
+    messages.append({"role": "assistant", "content": "Still red with byte-identical output, which means my write did not take effect. Checking that before assuming the fix is wrong."})
+    messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": "r5", "type": "function", "function": {"name": "read_file", "arguments": json.dumps({"path": "src/billing/invoice_service.py", "start_line": 1, "end_line": 40})}}]})
+    messages.append({"role": "tool", "name": "read_file", "tool_call_id": "r5", "content": _rounding_source()[:1600]})
+
+    messages.append({"role": "assistant", "content": "The file still shows `cents / 100.0` on line 12, so the write reported ok but did not persist. That is a tool-level failure, not a code-level one. I will pull the CI log to confirm the job sees the same tree before I spend another write on it."})
+    messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": "r6", "type": "function", "function": {"name": "fetch_ci_log", "arguments": json.dumps({"job_id": "88123"})}}]})
+    messages.append({"role": "tool", "name": "fetch_ci_log", "tool_call_id": "r6", "content": _gateway_error()})
+
+    messages.append({"role": "assistant", "content": "The log endpoint is a 502 from the gateway, not a log. Retrying once with the same id is reasonable; the request id suggests a transient upstream."})
+    messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": "r7", "type": "function", "function": {"name": "fetch_ci_log", "arguments": json.dumps({"job_id": "88123"})}}]})
+    messages.append({"role": "tool", "name": "fetch_ci_log", "tool_call_id": "r7", "content": _gateway_error()})
+
+    messages.append({"role": "assistant", "content": "Same 502. Per the rules I stop retrying and report, but first I want the runner environment dump, which is in the same endpoint under a different path in case the gateway routes them differently."})
+    messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": "r8", "type": "function", "function": {"name": "fetch_ci_log", "arguments": json.dumps({"job_id": "88123"})}}]})
+    messages.append({"role": "tool", "name": "fetch_ci_log", "tool_call_id": "r8", "content": _gateway_error()})
+
+    messages.append({"role": "assistant", "content": "The environment dump was not available through that endpoint either, so I will work from the local run and report the persistence failure as the primary finding."})
+    messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": "r9", "type": "function", "function": {"name": "run_tests", "arguments": json.dumps({"path": "tests/billing", "maxfail": 50})}}]})
+    messages.append({"role": "tool", "name": "run_tests", "tool_call_id": "r9", "content": tests})
+
+    messages.append({"role": "user", "content": "Also: the reproducer for the gateway 502 is not your problem. Focus on the patch. And if you cannot reproduce the write failure, say so explicitly instead of trying a fourth time."})
+    messages.append({"role": "assistant", "content": "Report: test_invoice_totals_rounding fails on 8 parametrised cases because invoice_total divides in float (110 / 100.0 -> 1.0999999999999999). The fix is a Decimal division at the boundary. I wrote it twice; the tool reported ok and the file did not change, so the write path is broken in this workspace and the patch is unverified. Confidence in the diagnosis: high. Confidence in the fix: unverified. Next action: a human should reproduce the write failure or apply the two-line change by hand."})
+
+    return {"model": "gpt-5.1", "messages": messages, "tools": _CI_TOOLS, "temperature": 0.2}
+
+
 # ---------------------------------------------------------------------------
 # 8. CLI
 # ---------------------------------------------------------------------------
