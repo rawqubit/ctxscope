@@ -939,9 +939,10 @@ def render_terminal(data: dict, color: bool = True, top: int = 10) -> str:
     score = data["score"]["value"]
     safe = data["trims"]["safe_pct"]
     dollars = data["dollars"]
+    per_call_text = "$%.2f/call at $3/Mtok" % dollars["per_1m_frontier"]
     lines.append(
         f"  {pal.bold('total')}           {pal.bold(_fmt(total))} tokens   {pal.dim(_fmt(totals['chars']) + ' chars')}"
-        f"   {pal.dim(f'${dollars['per_1m_frontier']:.2f}/call at $3/Mtok')}"
+        f"   {pal.dim(per_call_text)}"
     )
     lines.append(
         f"  {pal.bold('context health')}  {_grade_color(pal, grade)} {score}/100   "
