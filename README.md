@@ -34,7 +34,7 @@ cat trace.json | ctxscope -              # stdin
 
 ## What it prints
 
-Real output for [`examples/agent-trace.json`](examples/agent-trace.json), a 12-step agent run with the waste patterns that ship every day:
+Real output for [`examples/agent-trace.json`](examples/agent-trace.json), a long agent run with the waste patterns that ship every day:
 
 ```
 ctxscope 0.1.0  examples/agent-trace.json / gpt-5.1

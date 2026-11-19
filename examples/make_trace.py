@@ -24,7 +24,7 @@ def main() -> int:
     (HERE / "agent-trace.json").write_text(json.dumps(messy, indent=2) + "\n", encoding="utf-8")
     (HERE / "healthy-trace.json").write_text(json.dumps(healthy, indent=2) + "\n", encoding="utf-8")
     for name, payload in (("messy", messy), ("healthy", healthy)):
-        messages, _ = ctxscope.normalize(payload)
+        messages, _ = ctxscope.normalize(payload, "estimate")
         print(f"{name:8} {sum(m.tokens for m in messages):>8,} tokens  {len(messages)} messages")
     return 0
 
