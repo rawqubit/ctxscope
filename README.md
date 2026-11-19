@@ -108,6 +108,8 @@ One number, and every point is explained. Start at 100 and subtract:
 
 A: 85+, B: 70+, C: 55+, D: 35+, F: below 35. The score is a summary of the six checks, not a verdict on your prompt quality; `ctxscope` never sees the model's answer, so it cannot score that.
 
+It ranks windows, not runs, and those are not the same thing. [`retry-trace.json`](examples/retry-trace.json) scores 53 against `agent-trace.json`'s 34, even though the retry run is the more dangerous failure — an agent that paid for the same 7,306-token result three times because nothing in its loop noticed the write did not persist. Its window is smaller, so it scores better. The duplicate count is the window-level evidence of a run-level defect; the verdict belongs to whoever reads it.
+
 ## The viewer
 
 `--html` writes one file with no external requests: no CDN, no fonts, no analytics. Open it, or drop another trace on it, and the whole analysis runs in the browser.
