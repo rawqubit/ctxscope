@@ -1164,6 +1164,7 @@ th.c-blocks,td.c-blocks{width:104px}
 .sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:9px;vertical-align:0}
 .track3{height:3px;border-radius:2px;background:var(--line2);margin-top:5px;overflow:hidden;width:100%}
 .track3 i{display:block;height:100%;border-radius:2px}
+.sharecell{display:flex;flex-direction:column;justify-content:center;align-items:flex-end;gap:4px}
 
 .legend{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--faint);margin-bottom:10px}
 .legend .box{width:9px;height:9px;border-radius:2px;background:var(--accent);opacity:.85}
@@ -1227,6 +1228,15 @@ button:hover{border-color:var(--faint)}
 #drop.on{display:flex}
 #drop .box{border:1px dashed var(--line2);border-radius:14px;padding:42px 52px;text-align:center;background:var(--panel)}
 
+@media (max-width:480px){
+  .ring{width:84px;height:84px}
+  .ring svg{width:84px;height:84px}
+  .ring .n{font-size:23px}
+  .ring .of{font-size:9.5px}
+  .ring .gchip{font-size:7.5px;padding:3px 5px;letter-spacing:.06em}
+  .hero-stats{gap:10px}
+  .stat .v{font-size:17px}
+}
 @media (max-width:760px){
   header{grid-template-columns:auto 1fr;gap:18px;align-items:center}
   .ring{width:96px;height:96px;order:-1}
@@ -1654,8 +1664,8 @@ function render(d){
     '<colgroup><col><col class="c-tokens"><col class="c-share"><col class="c-blocks"></colgroup>'+
     '<tr><th>Bucket</th><th class="n c-tokens">Tokens</th><th class="n c-share">Share</th><th class="n c-blocks">Blocks</th></tr>' +
     d.kinds.map(k=>'<tr><td><span class="sw" style="background:'+varOf(k.kind)+'"></span>'+esc(k.label)+
-      '</td><td class="n c-tokens mono">'+fmt(k.tokens)+'</td><td class="n c-share"><div class="mono" style="color:var(--muted)">'+k.pct.toFixed(1)+'%</div>'+
-      '<div class="track3"><i style="width:'+Math.round(100*k.tokens/maxKind)+'%;background:'+varOf(k.kind)+';opacity:.55"></i></div>'+
+      '</td><td class="n c-tokens mono">'+fmt(k.tokens)+'</td><td class="n c-share"><div class="sharecell"><div class="mono" style="color:var(--muted)">'+k.pct.toFixed(1)+'%</div>'+
+      '<div class="track3"><i style="width:'+Math.round(100*k.tokens/maxKind)+'%;background:'+varOf(k.kind)+';opacity:.55"></i></div></div>'+
       '</td><td class="n c-blocks"><span class="bars"><span class="mono" style="color:var(--faint);font-size:11.5px;min-width:2ch;text-align:right">'+k.blocks+'</span><span class="track"><i style="width:'+Math.round(100*k.tokens/maxKind)+'%;background:'+varOf(k.kind)+'"></i></span></span></td></tr>').join("");
 
   const posMax = Math.max(...d.positional,1);
