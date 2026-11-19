@@ -953,7 +953,7 @@ def render_terminal(data: dict, color: bool = True, top: int = 10) -> str:
     largest = max((row["tokens"] for row in data["kinds"]), default=1)
     for row in data["kinds"]:
         lines.append(
-            f"  {row['label']:<16}{_bar(row['tokens'], largest)}  {_fmt(row['tokens']):>8}  {row['pct']:>5.1f}%  {pal.dim(str(row['blocks']) + ' blocks')}"
+            f"  {row['label']:<18}{_bar(row['tokens'], largest)}  {_fmt(row['tokens']):>8}  {row['pct']:>5.1f}%  {pal.dim(str(row['blocks']) + (' block' if row['blocks'] == 1 else ' blocks'))}"
         )
     lines.append("")
 
@@ -982,12 +982,13 @@ def render_terminal(data: dict, color: bool = True, top: int = 10) -> str:
         lines.append("")
 
     lines.append(pal.bold("TRIM SIMULATOR") + pal.dim("  (independent, against the full window)"))
+    width = max([len(row["label"]) for row in data["trims"]["rows"]] + [len("all three low-risk trims")]) + 2
     for row in data["trims"]["rows"]:
         risk = {"low": pal.green("low"), "medium": pal.yellow("medium"), "high": pal.red("high")}[row["risk"]]
-        lines.append(f"  {row['label']:<52}{_fmt(row['tokens']):>8}  {row['pct']:>5.1f}%  {risk}")
+        lines.append(f"  {row['label']:<{width}}{_fmt(row['tokens']):>8}  {row['pct']:>5.1f}%  {risk}")
     lines.append(
         "  "
-        + pal.bold(f"{'all three low-risk trims':<52}")
+        + pal.bold(f"{'all three low-risk trims':<{width}}")
         + pal.bold(f"{_fmt(data['trims']['safe_tokens']):>8}  {data['trims']['safe_pct']:>5.1f}%")
     )
     lines.append("")

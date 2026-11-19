@@ -41,18 +41,26 @@ ctxscope 0.1.0  examples/agent-trace.json / gpt-5.1
 openai / 38 messages / 8 tool schemas / tokens: estimate
 
   total           36,831 tokens   96,291 chars   $0.11/call at $3/Mtok
-  context health  D 34/100   safe savings 27.4% (10,085 tokens)
+  context health  F 34/100   safe savings 27.4% (10,085 tokens)
 
 WHERE THE TOKENS GO
-  tool results    ██████████████████████    33,389   90.7%  26 blocks
-  tool schemas    █·····················     1,705    4.6%  8 blocks
-  system prompt   ······················       657    1.8%  1 blocks
-  tool calls      ······················       551    1.5%  13 blocks
-  assistant turns ······················       434    1.2%  9 blocks
-  user turns      ······················        95    0.3%  2 blocks
+  tool results      ██████████████████████    33,389   90.7%  26 blocks
+  tool schemas      █·····················     1,705    4.6%  8 blocks
+  system prompt     ······················       657    1.8%  1 block
+  tool calls        ······················       551    1.5%  13 blocks
+  assistant turns   ······················       434    1.2%  9 blocks
+  user turns        ······················        95    0.3%  2 blocks
+
+BIGGEST MESSAGES
+  #13    tool      ██████████████    13,242  [fetch_page] { "errors": [ { "id": "err_1700", "first_seen": "2026-11-18T08:41
+  #10    tool      ██████········     5,342  [fetch_page] <!doctype html> <html lang="en"> <head> <meta charset="utf-8"> <t
+  #30    tool      ██████········     5,342  [fetch_page] <!doctype html> <html lang="en"> <head> <meta charset="utf-8"> <t
+  #20    tool      ██············     2,246  [run_shell] diff --git a/services/checkout/config/ledger.go b/services/checkou
+  #25    tool      ██············     1,508  [read_file] 0 checkout: 1 replicaCount: 12 2 image: 3 repository: registry.int
+  #4     tool      █·············     1,196  [web_search] { "results": [ { "title": "Checkout latency regression #0: p99 21
 
 DUPLICATES  7,716 wasted tokens
-  x2    5,336 tokens each    5,336 wasted  <!doctype html> <html lang="en"> <head> <meta charset="utf-8"> <t
+  x2    5,336 tokens each    5,336 wasted  <!doctype html> <html lang="en"> <head> <meta charset="utf-8"> <
   x3    1,190 tokens each    2,380 wasted  { "results": [ { "title": "Checkout latency regression #0: p99 2
 
 STRUCTURAL WASTE
@@ -62,15 +70,15 @@ STRUCTURAL WASTE
            Stack traces and HTML dumps carry alignment padding the model does not need
 
 TRIM SIMULATOR  (independent, against the full window)
-  Drop duplicate blocks                                  7,716   20.9%  low
-  Serialize JSON tool output compactly                   2,218    6.0%  low
-  Squash whitespace and blank lines                      1,703    4.6%  low
-  Truncate each tool result to 2000 tokens (head + tail)  18,180   49.4%  medium
-  Keep only the last 3 tool results                     32,170   87.3%  high
-  all three low-risk trims                              10,085   27.4%
+  Drop duplicate blocks                                      7,716   20.9%  low
+  Serialize JSON tool output compactly                       2,218    6.0%  low
+  Squash whitespace and blank lines                          1,703    4.6%  low
+  Truncate each tool result to 2000 tokens (head + tail)    18,180   49.4%  medium
+  Keep only the last 3 tool results                         32,170   87.3%  high
+  all three low-risk trims                                  10,085   27.4%
 ```
 
-Note the shape of that: the run is 91% tool output, 21% of the window is repeated blocks, and every low-risk trim together is a quarter of the bill. That is the normal case, not a pathological one.
+Note the shape of that: the run is 91% tool output, 21% of the window is repeated blocks, and every low-risk trim together is a quarter of the bill. That is the normal case, not a pathological one — and it is why a typical long agent run scores in the D to F band. That is the finding, not a calibration error: the failure mode the score measures is the one almost every team is already in.
 
 ## The five checks
 
