@@ -6,7 +6,7 @@ Point it at one request from an agent run and it answers the only question that 
 
 It counts tokens by bucket, finds the blocks that are duplicated, finds the structure that costs tokens without buying information, and simulates what each trim would save. One file, standard library only, no account, no telemetry, no network calls.
 
-![ctxscope report](docs/hero.png)
+![ctxscope analyzing an agent trace](docs/demo.gif)
 
 ## Run it
 
@@ -101,6 +101,8 @@ A: 85+, B: 70+, C: 55+, D: 35+, F: below 35. The score is a summary of the six c
 ## The viewer
 
 `--html` writes one file with no external requests: no CDN, no fonts, no analytics. Open it, or drop another trace on it, and the whole analysis runs in the browser.
+
+![ctxscope report](docs/hero.png)
 
 - Composition bar and per-bucket table
 - Position histogram, with the middle half highlighted
